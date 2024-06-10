@@ -38,6 +38,7 @@ class BasePromptFunction(Generic[P, R]):
         functions: list[Callable[..., Any]] | None = None,
         stop: list[str] | None = None,
         model: ChatModel | None = None,
+        num_retries: int | None = None,
     ):
         self._signature = inspect.Signature(
             parameters=parameters,
@@ -49,6 +50,7 @@ class BasePromptFunction(Generic[P, R]):
         self._model = model
 
         self._return_types = list(split_union_type(return_type))
+        self._num_retries = num_retries
 
     @property
     def functions(self) -> list[Callable[..., Any]]:
@@ -78,13 +80,20 @@ class PromptFunction(BasePromptFunction[P, R], Generic[P, R]):
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         """Query the LLM with the formatted prompt template."""
-        message = self.model.complete(
-            messages=[UserMessage(content=self.format(*args, **kwargs))],
-            functions=self._functions,
-            output_types=self._return_types,
-            stop=self._stop,
-        )
-        return message.content
+        retries = self._num_retries if self._num_retries is not None else 0
+        for attempt in range(retries + 1):
+            try:
+                message = self.model.complete(
+                    messages=[UserMessage(content=self.format(*args, **kwargs))],
+                    functions=self._functions,
+                    output_types=self._return_types,
+                    stop=self._stop,
+                )
+                return message.content
+            except Exception as e:
+                if attempt == retries:
+                    raise
+                self._messages.append(UserMessage(content=f"Error: {str(e)}"))
 
 
 class AsyncPromptFunction(BasePromptFunction[P, R], Generic[P, R]):
@@ -92,13 +101,20 @@ class AsyncPromptFunction(BasePromptFunction[P, R], Generic[P, R]):
 
     async def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         """Asynchronously query the LLM with the formatted prompt template."""
-        message = await self.model.acomplete(
-            messages=[UserMessage(content=self.format(*args, **kwargs))],
-            functions=self._functions,
-            output_types=self._return_types,
-            stop=self._stop,
-        )
-        return message.content
+        retries = self._num_retries if self._num_retries is not None else 0
+        for attempt in range(retries + 1):
+            try:
+                message = await self.model.acomplete(
+                    messages=[UserMessage(content=self.format(*args, **kwargs))],
+                    functions=self._functions,
+                    output_types=self._return_types,
+                    stop=self._stop,
+                )
+                return message.content
+            except Exception as e:
+                if attempt == retries:
+                    raise
+                self._messages.append(UserMessage(content=f"Error: {str(e)}"))
 
 
 class PromptDecorator(Protocol):

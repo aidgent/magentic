@@ -90,23 +90,37 @@ class Chat:
         """Add an assistant message to the chat."""
         return self.add_message(AssistantMessage(content=content))
 
-    def submit(self: Self) -> Self:
+    def submit(self: Self, num_retries: int | None = None) -> Self:
         """Request an LLM message to be added to the chat."""
-        output_message: AssistantMessage[Any] = self.model.complete(
-            messages=self._messages,
-            functions=self._functions,
-            output_types=self._output_types,
-        )
-        return self.add_message(output_message)
+        retries = num_retries if num_retries is not None else 0
+        for attempt in range(retries + 1):
+            try:
+                output_message: AssistantMessage[Any] = self.model.complete(
+                    messages=self._messages,
+                    functions=self._functions,
+                    output_types=self._output_types,
+                )
+                return self.add_message(output_message)
+            except Exception as e:
+                if attempt == retries:
+                    raise
+                self._messages.append(UserMessage(content=f"Error: {str(e)}"))
 
-    async def asubmit(self: Self) -> Self:
+    async def asubmit(self: Self, num_retries: int | None = None) -> Self:
         """Async version of `submit`."""
-        output_message: AssistantMessage[Any] = await self.model.acomplete(
-            messages=self._messages,
-            functions=self._functions,
-            output_types=self._output_types,
-        )
-        return self.add_message(output_message)
+        retries = num_retries if num_retries is not None else 0
+        for attempt in range(retries + 1):
+            try:
+                output_message: AssistantMessage[Any] = await self.model.acomplete(
+                    messages=self._messages,
+                    functions=self._functions,
+                    output_types=self._output_types,
+                )
+                return self.add_message(output_message)
+            except Exception as e:
+                if attempt == retries:
+                    raise
+                self._messages.append(UserMessage(content=f"Error: {str(e)}"))
 
     def exec_function_call(self: Self) -> Self:
         """If the last message is a function call, execute it and add the result."""
